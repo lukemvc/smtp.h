@@ -2,7 +2,7 @@
 
 int main() {
     Email email;
-    email.from = "Test <Test@domain.com";
+    email.from = "Test <Test@domain.com>";
     email.to = "Friend <friend@dexample.com>";
     email.subject = "Testing";
     email.body = "Hello World!";

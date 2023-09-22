@@ -2,16 +2,17 @@
 
 int main() {
     Email email;
-    email.from = "Test <Test@domain.com";
-    email.to = "Friend <friend@dexample.com>";
-    email.subject = "Testing";
-    email.body = "Hello World!";
+    email.from = "your_email@gmail.com";
+    email.to = "recipient@example.com";
+    email.subject = "Hello, SMTP Library!";
+    email.body = "This is a test email sent using the SMTP library.";
 
-    Smtp server("smtp.domain.com", 587);
+    Smtp server("smtp.example.com", 587);
     server.Ehlo();
     server.StartTls();
-    server.Login("test@domain.com", "password123");
+    server.Login("your_username", "your_password");
     server.SendMail(email);
     server.Quit();
+
     return 0;
 }

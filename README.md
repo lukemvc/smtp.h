@@ -12,10 +12,10 @@ Single header SMTP client library for C++.
 - Minimalistic, single-header design for easy usage.
 
 ## Dependencies
-- [OpenSSL](https://www.openssl.org/): This library uses OpenSSL for secure TLS connections.
+- [OpenSSL](https://www.openssl.org/): This library uses OpenSSL for secure TLS connections. (-l)
+    - On Debian/Ubuntu: `sudo apt-get install libssl-dev`
 
 ## Usage
-
 Include the `smtp.h` header file in your C++ project. 
 
 ```c++
@@ -46,10 +46,8 @@ g++ -o send_email main.cpp -lssl -lcrypto
 ```
 
 ## Note
-
 - This library is currently designed for Linux-based systems due to the use of sys/socket.h.
 - Ensure you have OpenSSL installed on your system.
 
 ## License
-
 This project is licensed under the MIT License - see the [LICENSE](/LICENSE) file for details.

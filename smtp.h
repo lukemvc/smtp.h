@@ -39,7 +39,7 @@
  * @brief Represents an outbound email message with sender, recipient, subject, and body.
  */
 struct Email {
-    std::string from, to, subject, body;
+    std::string from, to, subject, body, html;
 };
 /**
  * @brief Represents an SMTP client.
@@ -55,7 +55,7 @@ public:
      * @param host The SMTP server hostname or IP address.
      * @param port The port number to connect to the SMTP server.
      */
-    Smtp(const char* host, int port);
+    Smtp(const std::string& host, int port);
 
     /**
      * @brief Destroys the SMTP client instance and closes the connection.
@@ -88,7 +88,7 @@ public:
      *
      * @return The response received from the server.
      */
-    std::string Login(const std::string &username, const std::string &password);
+    std::string Login(const std::string& username, const std::string& password);
 
     /**
      * @brief Sends an email using the provided Email structure.
@@ -129,7 +129,7 @@ private:
          * @param host The SMTP server hostname or IP address.
          * @param port The port number to connect to the SMTP server.
          */
-        SmtpSocket(const char* host, int port);
+        SmtpSocket(const std::string& host, int port);
 
         /**
          * @brief Destroys the SMTP smtpSocket instance.
@@ -176,7 +176,7 @@ private:
          * @param hostName The SMTP server hostname.
          * @throws std::runtime_error if there is an error resolving the IP address.
          */
-        void getServerIpFromHostName(const std::string &hostName);
+        void getServerIpFromHostName(const std::string& hostName);
 
         /**
          * @brief Connects to the SMTP server.
@@ -224,7 +224,7 @@ private:
      * @param content The input content containing an email address.
      * @return The extracted email address.
      */
-    static std::string extractEmail(std::string &content);
+    static std::string extractEmail(std::string& content);
 
     /**
      * @brief Construct MAIL FROM command.
@@ -232,7 +232,7 @@ private:
      * @param fromName The sender's email address or name.
      * @return The formatted MAIL FROM command.
      */
-    static std::string makeMailFromCmd(std::string &fromName);
+    static std::string makeMailFromCmd(std::string& fromName);
 
     /**
      * @brief Construct RCPT TO command.
@@ -240,7 +240,7 @@ private:
      * @param recipient The recipient's email address.
      * @return The formatted RCPT TO command.
      */
-    static std::string makeRcptToCmd(std::string &recipient);
+    static std::string makeRcptToCmd(std::string& recipient);
 
     /**
      * @brief Construct Auth command by joining credentials and base64 encoding them (AUTH PLAIN).
@@ -249,7 +249,7 @@ private:
      * @param password The SMTP server password.
      * @return The formatted AUTH command.
      */
-    static std::string makeAuthCommand(const std::string &username, const std::string &password);
+    static std::string makeAuthCommand(const std::string& username, const std::string& password);
 
     /**
      * @brief Construct a formatted email from the Email struct.
@@ -284,7 +284,7 @@ private:
      * @param response The response received from the server.
      * @return The extracted status code.
      */
-    static int statusCodeFromResponse(std::string &response);
+    static int statusCodeFromResponse(std::string& response);
 
     /**
      * @brief Encodes a string using base64 encoding.
@@ -292,7 +292,7 @@ private:
      * @param input The input string to be encoded.
      * @return The base64 encoded string.
      */
-    static std::string base64_encode(const std::string &input);
+    static std::string base64_encode(const std::string& input);
 
 
     /**
@@ -315,13 +315,13 @@ private:
     SmtpState smtpState;    // Current state of the SMTP client
 };
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//                               Smtp method definitions
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
+//                                                                               //
+//                            Smtp method definitions                            //
+//                                                                               //
+///////////////////////////////////////////////////////////////////////////////////
 
-Smtp::Smtp(const char* host, int port) : smtpSocket(host, port), smtpState(CONNECTED) {}
+Smtp::Smtp(const std::string& host, int port) : smtpSocket(host, port), smtpState(CONNECTED) {}
 
 Smtp::~Smtp() {
     if (smtpState < QUIT_SENT) {
@@ -344,7 +344,7 @@ std::string Smtp::Ehlo() {
 
 void Smtp::StartTls() {
     if (smtpState < EHLO_SENT) {
-        throw std::runtime_error("Must use Ehlo() before using StartTls()");
+        Ehlo();
     }
     if (smtpState < TLS_CONFIRMED) {
         std::string tlsCommand = "STARTTLS\r\n";
@@ -358,7 +358,7 @@ void Smtp::StartTls() {
     }
 }
 
-std::string Smtp::Login(const std::string &username, const std::string &password) {
+std::string Smtp::Login(const std::string& username, const std::string& password) {
     if (smtpState < TLS_CONFIRMED) {
         throw std::runtime_error("Must use StartTls() before authenticating.");
     }
@@ -376,8 +376,11 @@ std::string Smtp::Login(const std::string &username, const std::string &password
 }
 
 std::string Smtp::SendMail(Email& email) {
-    if (email.from.empty() || email.to.empty() || email.subject.empty() || email.body.empty()) {
-        throw std::runtime_error("All Email fields (from, to, subject, or body) are required for SendEmail.");
+    if (email.from.empty() || email.to.empty() || email.subject.empty()) {
+        throw std::runtime_error("Fields 'from', 'to', and 'subject' are required for SendEmail.");
+    }
+    if (email.body.empty() && email.html.empty()) {
+        throw std::runtime_error("Must set either body or html for the email.");
     }
     sendingEmail = email;
     sendMailFromCommand();
@@ -398,7 +401,7 @@ std::string Smtp::Quit() {
     return response;
 }
 
-std::string Smtp::extractEmail(std::string &content) {
+std::string Smtp::extractEmail(std::string& content) {
     std::regex emailRegex(R"(\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)");
     std::smatch match;
     if (std::regex_search(content, match, emailRegex)) {
@@ -407,7 +410,7 @@ std::string Smtp::extractEmail(std::string &content) {
     throw std::runtime_error("Unable to parse email from: " + content);
 }
 
-std::string Smtp::makeMailFromCmd(std::string &fromName) {
+std::string Smtp::makeMailFromCmd(std::string& fromName) {
     std::string cleanEmail = extractEmail(fromName);
     std::stringstream mailFromFormat;
     mailFromFormat << "MAIL FROM:<" << cleanEmail << ">\r\n";
@@ -415,14 +418,14 @@ std::string Smtp::makeMailFromCmd(std::string &fromName) {
 
 }
 
-std::string Smtp::makeRcptToCmd(std::string &recipient) {
+std::string Smtp::makeRcptToCmd(std::string& recipient) {
     std::string cleanEmail = extractEmail(recipient);
     std::stringstream rcptToFormat;
     rcptToFormat << "RCPT TO:<" << cleanEmail << ">\r\n";
     return rcptToFormat.str();
 }
 
-std::string Smtp::makeAuthCommand(const std::string &username, const std::string &password) {
+std::string Smtp::makeAuthCommand(const std::string& username, const std::string& password) {
     std::stringstream joinedCredentials;
     joinedCredentials << '\0' << username << '\0' << password ;
     std::string encodedCredentials = base64_encode(joinedCredentials.str());
@@ -432,11 +435,24 @@ std::string Smtp::makeAuthCommand(const std::string &username, const std::string
 }
 
 std::string Smtp::makeEmailContentCommand() const {
+    std::string emailContent;
+    std::string contentType;
+    if (!sendingEmail.html.empty()) {
+        emailContent = sendingEmail.html;
+        contentType = "text/html;";
+    } else {
+        contentType = "text/plain;";
+        emailContent = sendingEmail.body;
+    }
     std::stringstream emailFormat;
-    emailFormat << "From: " << sendingEmail.from << "\r\n" << "To: " << sendingEmail.to << "\r\n"
+    emailFormat << "From: " << sendingEmail.from << "\r\n"
+                << "To: " << sendingEmail.to << "\r\n"
                 << "Subject: " << sendingEmail.subject << "\r\n"
-                << "Content-Type: text/plain; charset=\"utf-8\"\r\n""Content-Transfer-Encoding: 7bit\r\n"
-                << "MIME-Version: 1.0\r\n\r\n" << sendingEmail.body << "\r\n.\r\n";
+                << "Content-Type: " << contentType << " charset=\"utf-8\"\r\n"
+                << "Content-Transfer-Encoding: 7bit\r\n"
+                << "MIME-Version: 1.0\r\n\r\n"
+                << emailContent
+                << "\r\n.\r\n";
     return emailFormat.str();
 }
 
@@ -483,7 +499,7 @@ void Smtp::sendEmailContent() {
     smtpState = EMAIL_CONTENT_SENT;
 }
 
-int Smtp::statusCodeFromResponse(std::string &response) {
+int Smtp::statusCodeFromResponse(std::string& response) {
     if (response.length() >= 3) {
         for (int i = 0; i < 3; i++) {
             if (!isdigit(response[i])) {
@@ -496,7 +512,7 @@ int Smtp::statusCodeFromResponse(std::string &response) {
     }
 }
 
-std::string Smtp::base64_encode(const std::string &input) {
+std::string Smtp::base64_encode(const std::string& input) {
     BIO* bio = BIO_new(BIO_s_mem());
     BIO* b64 = BIO_new(BIO_f_base64());
     BIO_push(b64, bio);
@@ -511,13 +527,14 @@ std::string Smtp::base64_encode(const std::string &input) {
     return result;
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//                            SmtpSocket method definitions
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
+//                                                                               //
+//                          SmtpSocket method definitions                        //
+//                                                                               //
+///////////////////////////////////////////////////////////////////////////////////
 
-Smtp::SmtpSocket::SmtpSocket(const char *host, const int port) : host_name_(host), port_(port), sock_fd_(-1), is_ssl_(false) {
+Smtp::SmtpSocket::SmtpSocket(const std::string& host, const int port)
+    : host_name_(host), port_(port), sock_fd_(-1), is_ssl_(false) {
     createSocket();
     connectServer();
 }
@@ -527,7 +544,7 @@ Smtp::SmtpSocket::~SmtpSocket() {
     closeSocket();
 }
 
-std::string Smtp::SmtpSocket::sendCommand(const std::string &command) {
+std::string Smtp::SmtpSocket::sendCommand(const std::string& command) {
     if (sock_fd_ == -1) {
         throw std::runtime_error("Cannot send command. Error with smtpSocket.");
     }
@@ -582,7 +599,7 @@ void Smtp::SmtpSocket::createSocket() {
     }
 }
 
-void Smtp::SmtpSocket::getServerIpFromHostName(const std::string &hostName) {
+void Smtp::SmtpSocket::getServerIpFromHostName(const std::string& hostName) {
     struct addrinfo hints{};
     struct addrinfo* result;
 

@@ -2,16 +2,25 @@
 
 int main() {
     Email email;
-    email.from = "Test <Test@domain.com>";
-    email.to = "Friend <friend@dexample.com>";
-    email.subject = "Testing";
-    email.body = "Hello World!";
+    email.from = "your_email@domiain.com"; // OR "Your Name <your_email@domain.com>"
+    email.to = "recipient@example.com"; // OR "Rcpt Name <recipient@example.com>"
+    email.subject = "Hello World";
+    email.body = "This is a test email sent using the SMTP library.";
+    // For Html:
+    // email.html = R"(
+    // <<!DOCTYPE html>
+    // <html lang="en">
+    // <body>
+    //     <p>This is a test email sent using the SMTP library.</p>
+    // </body>
+    // </html>)"
 
     Smtp server("smtp.domain.com", 587);
     server.Ehlo();
     server.StartTls();
-    server.Login("test@domain.com", "password123");
+    server.Login("your_username", "your_password");
     server.SendMail(email);
     server.Quit();
+
     return 0;
 }

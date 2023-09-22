@@ -15,6 +15,7 @@
 #include <utility>
 #include <regex>
 #include <sstream>
+#include <vector>
 #include <unistd.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -41,6 +42,7 @@
 struct Email {
     std::string from, to, subject, body, html;
 };
+
 /**
  * @brief Represents an SMTP client.
  *
@@ -63,18 +65,18 @@ public:
     ~Smtp();
 
     /**
-     * @brief Initiates the EHLO (Extended Hello) handshake with the SMTP server.
+     * @brief Initiates the EHLO handshake with the SMTP server.
      *
      * @return The response received from the server.
      *
-     * @throws std::runtime_error if EHLO response is unexpected.
+     * @throws std::runtime_error if EHLO response is unexpected/invalid.
      */
     std::string Ehlo();
 
     /**
      * @brief Initiates a secure TLS (Transport Layer Security) connection with the SMTP server.
      *
-     * @throws std::runtime_error if EHLO was not sent before using StartTls() or if the STARTTLS response is unexpected.
+     * @throws std::runtime_error if the STARTTLS response is unexpected/invalid.
      */
     void StartTls();
 
@@ -129,7 +131,7 @@ private:
          * @param host The SMTP server hostname or IP address.
          * @param port The port number to connect to the SMTP server.
          */
-        SmtpSocket(const std::string& host, int port);
+        SmtpSocket(std::string  host, int port);
 
         /**
          * @brief Destroys the SMTP smtpSocket instance.
@@ -287,6 +289,13 @@ private:
     static int statusCodeFromResponse(std::string& response);
 
     /**
+     * @brief Parse the advertised/supported methods from the EHLO response.
+     * @param response Response from issuing EHLO command.
+     * @return Vector containing advertised/supported methods.
+     */
+    static std::vector<std::string> advertisedFromEhloResponse(std::string& response);
+
+    /**
      * @brief Encodes a string using base64 encoding.
      *
      * @param input The input string to be encoded.
@@ -332,6 +341,7 @@ Smtp::~Smtp() {
 std::string Smtp::Ehlo() {
     std::string ehloCmd = "EHLO hello.com\r\n";
     std::string response = smtpSocket.sendCommand(ehloCmd);
+    std::vector<std::string> advertised = advertisedFromEhloResponse(response);
     int ehloStatus = statusCodeFromResponse(response);
     if (ehloStatus != VALID_EHLO_STATUS) {
         throw std::runtime_error("Unexpected EHLO response: " + response);
@@ -441,8 +451,8 @@ std::string Smtp::makeEmailContentCommand() const {
         emailContent = sendingEmail.html;
         contentType = "text/html;";
     } else {
-        contentType = "text/plain;";
         emailContent = sendingEmail.body;
+        contentType = "text/plain;";
     }
     std::stringstream emailFormat;
     emailFormat << "From: " << sendingEmail.from << "\r\n"
@@ -512,6 +522,21 @@ int Smtp::statusCodeFromResponse(std::string& response) {
     }
 }
 
+std::vector<std::string> Smtp::advertisedFromEhloResponse(std::string& response) {
+    std::vector<std::string> advertised;
+    std::istringstream responseStream(response);
+    std::string line;
+    while (std::getline(responseStream, line, '\n')) {
+        if (line.find("250") == 0) {
+            while (line.back() == '\r' || line.back() == '\n') {
+                line.pop_back();
+            }
+            advertised.push_back(line.substr(4));
+        }
+    }
+    return advertised;
+}
+
 std::string Smtp::base64_encode(const std::string& input) {
     BIO* bio = BIO_new(BIO_s_mem());
     BIO* b64 = BIO_new(BIO_f_base64());
@@ -533,8 +558,8 @@ std::string Smtp::base64_encode(const std::string& input) {
 //                                                                               //
 ///////////////////////////////////////////////////////////////////////////////////
 
-Smtp::SmtpSocket::SmtpSocket(const std::string& host, const int port)
-    : host_name_(host), port_(port), sock_fd_(-1), is_ssl_(false) {
+Smtp::SmtpSocket::SmtpSocket(std::string host, const int port)
+    : host_name_(std::move(host)), port_(port), sock_fd_(-1), is_ssl_(false) {
     createSocket();
     connectServer();
 }

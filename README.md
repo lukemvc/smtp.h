@@ -26,9 +26,10 @@ int main() {
     email.to = "recipient@example.com"; // OR "Rcpt Name <recipient@example.com>"
     email.subject = "Hello World";
     email.body = "This is a test email sent using the SMTP library.";
-    // For Html:
+    // For Html Emails
+    //=================
     // email.html = R"(
-    // <<!DOCTYPE html>
+    // <!DOCTYPE html>
     // <html lang="en">
     // <body>
     //     <p>This is a test email sent using the SMTP library.</p>

@@ -1,5 +1,5 @@
 /*
- * SMTP Library for C++
+ * SMTP Client Library for C++
  * https://github.com/lukemvc/smtp.h
  *
  * MIT License
@@ -40,7 +40,12 @@
  * @brief Represents an outbound email message with sender, recipient, subject, and body.
  */
 struct Email {
-    std::string from, to, subject, body, html;
+    std::string from;     // Email From address
+    std::string to;       // Email recipient address
+    std::string subject;  // Email subject
+    std::string body;     // Email body if sending  plain text email
+    std::string html;     // Email html if sending a html email
+
 };
 
 /**
@@ -212,11 +217,13 @@ private:
          */
         void closeSocket() const;
 
-        std::string host_name_, server_ip_;
-        int port_, sock_fd_;
-        bool is_ssl_;
-        SSL* ssl_socket_{};
-        SSL_CTX* ssl_context_{};
+        std::string host_name_;  // Smtp server host name. i.e smtp.domain.com
+        std::string server_ip_;  // Smtp server ip address.
+        int port_;               // Smtp server port.
+        int sock_fd_;            // Socket file descriptor.
+        bool is_ssl_;            // Represents if socket has been moved to ssl.
+        SSL* ssl_socket_{};      // Pointer to SSL socket.
+        SSL_CTX* ssl_context_{}; // Pointer to SSL context.
     };
 
     /**
@@ -319,9 +326,10 @@ private:
         QUIT_SENT,
     };
 
-    SmtpSocket smtpSocket;  // Socket for SMTP communication
-    Email sendingEmail;  // Pointer to the email being sent
-    SmtpState smtpState;    // Current state of the SMTP client
+    SmtpSocket smtpSocket;                      // Socket for SMTP communication
+    Email sendingEmail;                         // Email being sent
+    SmtpState smtpState;                        // Current state of the SMTP client
+    std::vector<std::string> advertisedMethods; // Advertised methods from server response to EHLO
 };
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -667,7 +675,7 @@ void Smtp::SmtpSocket::connectServer() {
     connectionBuffer[n] = '\0';
     int connectionStatus = statusFromConnection(connectionBuffer);
     if (connectionStatus != 220) {
-        throw std::runtime_error("Invalid connection status. Expected 220 but got: " + std::to_string(connectionStatus));
+        throw std::runtime_error("Invalid connection response: " + std::string(connectionBuffer));
     }
 }
 

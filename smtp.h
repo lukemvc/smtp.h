@@ -37,13 +37,13 @@
 #define VALID_QUIT_RESPONSE 221
 
 /**
- * @brief Represents an outbound email message with sender, recipient, subject, and body.
+ * @brief Represents an outbound email message with sender, recipient, subject, and body/html.
  */
 struct Email {
     std::string from;     // Email From address
     std::string to;       // Email recipient address
     std::string subject;  // Email subject
-    std::string body;     // Email body if sending  plain text email
+    std::string body;     // Email body if sending plain text email
     std::string html;     // Email html if sending a html email
 
 };
@@ -79,7 +79,7 @@ public:
     std::string Ehlo();
 
     /**
-     * @brief Initiates a secure TLS (Transport Layer Security) connection with the SMTP server.
+     * @brief Initiates a secure TLS connection with the SMTP server.
      *
      * @throws std::runtime_error if the STARTTLS response is unexpected/invalid.
      */
@@ -100,11 +100,11 @@ public:
     /**
      * @brief Sends an email using the provided Email structure.
      *
-     * @param email Pointer to the Email structure containing email details.
+     * @param email Email structure containing email details.
      *
      * @throws std::runtime_error if authentication is not done before sending emails or if an unexpected response is received.
      *
-     * @return A message indicating the email has been sent.
+     * @return Server response to sending the email.
      */
     std::string SendMail(Email& email);
 
@@ -147,8 +147,6 @@ private:
 
         /**
          * @brief Sends an SMTP command to the server and receives a response.
-         *
-         * Sends the specified command to the server and returns the response received from the server.
          *
          * @param command The SMTP command to send.
          * @return The response received from the server.
@@ -284,8 +282,10 @@ private:
 
     /**
      * @brief Send the Email content/data to the server.
+     *
+     * @return Server response to sending the email.
      */
-    void sendEmailContent();
+    std::string sendEmailContent();
 
     /**
      * @brief Parses the status code from an SMTP server response.
@@ -404,8 +404,8 @@ std::string Smtp::SendMail(Email& email) {
     sendMailFromCommand();
     sendRcptToCommand();
     sendDataCommand();
-    sendEmailContent();
-    return "Email Sent.";
+    std::string emailResponse = sendEmailContent();
+    return emailResponse;
 }
 
 std::string Smtp::Quit() {
@@ -504,7 +504,7 @@ void Smtp::sendDataCommand() {
     smtpState = DATA_COMMAND_SENT;
 }
 
-void Smtp::sendEmailContent() {
+std::string Smtp::sendEmailContent() {
     if (smtpState < DATA_COMMAND_SENT) {
         throw std::runtime_error("Invalid client state. Must issue proper command sequence before sending an email.");
     }
@@ -515,6 +515,7 @@ void Smtp::sendEmailContent() {
         throw std::runtime_error("Unexpected Email Content response: " + response);
     }
     smtpState = EMAIL_CONTENT_SENT;
+    return response;
 }
 
 int Smtp::statusCodeFromResponse(std::string& response) {
@@ -604,7 +605,11 @@ std::string Smtp::SmtpSocket::sendCommand(const std::string& command) {
         throw std::runtime_error("Error receiving data from server.");
     }
     buffer[bytes_received] = '\0';
-    return buffer;
+    std::string socketResponse = std::string(buffer);
+    while (socketResponse.back() == '\r' || socketResponse.back() == '\n') {
+        socketResponse.pop_back();
+    }
+    return socketResponse;
 }
 
 void Smtp::SmtpSocket::initializeSSL() {
@@ -642,7 +647,8 @@ void Smtp::SmtpSocket::getServerIpFromHostName(const std::string& hostName) {
 
     int status = getaddrinfo(hostName.c_str(), nullptr, &hints, &result);
     if (status != 0) {
-        throw std::runtime_error("getaddrinfo failed: " + std::string(gai_strerror(status)));
+        throw std::runtime_error("getaddrinfo of domain failed for " + hostName +": "
+                                + std::string(gai_strerror(status)));
     }
 
     if (result != nullptr) {

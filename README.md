@@ -22,7 +22,7 @@ Include the `smtp.h` header file in your C++ project.
 
 int main() {
     Email email;
-    email.from = "your_email@domiain.com"; // OR "Your Name <your_email@domain.com>"
+    email.from = "your_email@domain.com"; // OR "Your Name <your_email@domain.com>"
     email.to = "recipient@example.com"; // OR "Rcpt Name <recipient@example.com>"
     email.subject = "Hello World";
     email.body = "This is a test email sent using the SMTP library.";
@@ -34,7 +34,7 @@ int main() {
     // <body>
     //     <p>This is a test email sent using the SMTP library.</p>
     // </body>
-    // </html>)"
+    // </html>)";
     
     Smtp server("smtp.domain.com", 587);
     server.Ehlo();

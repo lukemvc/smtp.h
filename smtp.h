@@ -367,7 +367,7 @@ Smtp::~Smtp() {
 }
 
 std::string Smtp::Ehlo() {
-    std::string ehloCmd = "EHLO hello.com\r\n";
+    std::string ehloCmd = "EHLO [127.0.0.1]\r\n";
     std::string response = smtp_socket_.sendCommand(ehloCmd);
     advertised_methods_ = advertisedFromEhloResponse(response);
     int ehloStatus = statusCodeFromResponse(response);

@@ -29,6 +29,7 @@
 
 #define VALID_EHLO_STATUS 250
 #define VALID_STARTTLS_STATUS 220
+#define VALID_USERNAME_STATUS 334
 #define VALID_AUTH_STATUS 235
 #define VALID_MAIL_FROM_STATUS 250
 #define VALID_RCPT_TO_STATUS 250
@@ -122,16 +123,16 @@ private:
     /**
      * @brief Internal class for handling socket communication and functions for Smtp.
      *
-     * This class provides methods for initializing and managing an SMTP smtpSocket, sending SMTP commands,
+     * This class provides methods for initializing and managing an SMTP smtp_socket_, sending SMTP commands,
      * and handling SSL/TLS connections.
      *
      */
     class SmtpSocket {
     public:
         /**
-         * @brief Constructs an SMTP smtpSocket instance.
+         * @brief Constructs an SMTP smtp_socket_ instance.
          *
-         * Initializes the SMTP smtpSocket and establishes a connection to the server.
+         * Initializes the SMTP smtp_socket_ and establishes a connection to the server.
          *
          * @param host The SMTP server hostname or IP address.
          * @param port The port number to connect to the SMTP server.
@@ -139,9 +140,9 @@ private:
         SmtpSocket(std::string  host, int port);
 
         /**
-         * @brief Destroys the SMTP smtpSocket instance.
+         * @brief Destroys the SMTP smtp_socket_ instance.
          *
-         * Closes the smtpSocket and performs SSL cleanup if SSL is enabled.
+         * Closes the smtp_socket_ and performs SSL cleanup if SSL is enabled.
          */
         ~SmtpSocket();
 
@@ -150,14 +151,14 @@ private:
          *
          * @param command The SMTP command to send.
          * @return The response received from the server.
-         * @throws std::runtime_error if there is an error with the smtpSocket or while sending/receiving data.
+         * @throws std::runtime_error if there is an error with the smtp_socket_ or while sending/receiving data.
          */
         std::string sendCommand(const std::string& command);
 
         /**
          * @brief Initializes the SSL/TLS connection with the SMTP server.
          *
-         * Initializes SSL libraries, creates an SSL context and smtpSocket, and performs the SSL handshake.
+         * Initializes SSL libraries, creates an SSL context and smtp_socket_, and performs the SSL handshake.
          *
          * @throws std::runtime_error if there is an error initializing SSL or performing the handshake.
          */
@@ -165,11 +166,11 @@ private:
 
     private:
         /**
-         * @brief Creates a smtpSocket for SMTP communication.
+         * @brief Creates a smtp_socket_ for SMTP communication.
          *
-         * Creates a smtpSocket and stores the file descriptor in 'sock_fd_'.
+         * Creates a smtp_socket_ and stores the file descriptor in 'sock_fd_'.
          *
-         * @throws std::runtime_error if there is an error creating the smtpSocket.
+         * @throws std::runtime_error if there is an error creating the smtp_socket_.
          */
         void createSocket();
 
@@ -204,14 +205,14 @@ private:
         static int statusFromConnection(const char* connectionBuffer);
 
         /**
-         * @brief Cleans up SSL resources and closes the SSL smtpSocket.
+         * @brief Cleans up SSL resources and closes the SSL smtp_socket_.
          *
-         * Shuts down the SSL smtpSocket, frees SSL context and SSL smtpSocket resources, and performs SSL cleanup.
+         * Shuts down the SSL smtp_socket_, frees SSL context and SSL smtp_socket_ resources, and performs SSL cleanup.
          */
         void cleanupSSL();
 
         /**
-         * @brief Closes the SMTP smtpSocket if it is open.
+         * @brief Closes the SMTP smtp_socket_ if it is open.
          */
         void closeSocket() const;
 
@@ -250,13 +251,30 @@ private:
     static std::string makeRcptToCmd(std::string& recipient);
 
     /**
-     * @brief Construct Auth command by joining credentials and base64 encoding them (AUTH PLAIN).
+     * @brief Construct AUTH PLAIN command by joining credentials and base64 encoding them.
      *
      * @param username The SMTP server username.
      * @param password The SMTP server password.
-     * @return The formatted AUTH command.
+     * @return The formatted AUTH PLAIN command.
      */
-    static std::string makeAuthCommand(const std::string& username, const std::string& password);
+    static std::string makePlainAuthCommand(const std::string& username, const std::string& password);
+
+    /**
+     * @brief Perform AUTH PLAIN login
+     * @param authCommand AUTH PLAIN command with base64 encoded credentials;
+     * @throws std::runtime_error if authentication fails or if an unexpected response is received.
+     * @return Server response to login.
+     */
+    std::string plainAuthLogin(std::string& authCommand);
+
+    /**
+     * @brief Perform AUTH LOGIN login
+     * @param username smtp server username
+     * @param password smtp server password
+     * @throws std::runtime_error if authentication fails or if an unexpected response is received.
+     * @return Server response to login.
+     */
+    std::string loginAuthLogin(const std::string& username, const std::string& password);
 
     /**
      * @brief Construct a formatted email from the Email struct.
@@ -300,7 +318,7 @@ private:
      * @param response Response from issuing EHLO command.
      * @return Vector containing advertised/supported methods.
      */
-    static std::vector<std::string> advertisedFromEhloResponse(std::string& response);
+    std::vector<std::string> advertisedFromEhloResponse(std::string& response);
 
     /**
      * @brief Encodes a string using base64 encoding.
@@ -326,10 +344,12 @@ private:
         QUIT_SENT,
     };
 
-    SmtpSocket smtpSocket;                      // Socket for SMTP communication
-    Email sendingEmail;                         // Email being sent
-    SmtpState smtpState;                        // Current state of the SMTP client
-    std::vector<std::string> advertisedMethods; // Advertised methods from server response to EHLO
+    SmtpSocket smtp_socket_;                      // Socket for SMTP communication
+    Email sending_email_;                         // Email being sent
+    SmtpState smtp_state_;                        // Current state of the SMTP client
+    std::vector<std::string> advertised_methods_; // Advertised methods from server response to EHLO
+    bool tls_supported_ = false;                  // Indicates if the server support TLS. Set to false as default
+    std::string auth_methods_;                    // Supported auth methods from the server
 };
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -338,58 +358,67 @@ private:
 //                                                                               //
 ///////////////////////////////////////////////////////////////////////////////////
 
-Smtp::Smtp(const std::string& host, int port) : smtpSocket(host, port), smtpState(CONNECTED) {}
+Smtp::Smtp(const std::string& host, int port) : smtp_socket_(host, port), smtp_state_(CONNECTED) {}
 
 Smtp::~Smtp() {
-    if (smtpState < QUIT_SENT) {
+    if (smtp_state_ < QUIT_SENT) {
         Quit();
     }
 }
 
 std::string Smtp::Ehlo() {
     std::string ehloCmd = "EHLO hello.com\r\n";
-    std::string response = smtpSocket.sendCommand(ehloCmd);
-    std::vector<std::string> advertised = advertisedFromEhloResponse(response);
+    std::string response = smtp_socket_.sendCommand(ehloCmd);
+    advertised_methods_ = advertisedFromEhloResponse(response);
     int ehloStatus = statusCodeFromResponse(response);
     if (ehloStatus != VALID_EHLO_STATUS) {
         throw std::runtime_error("Unexpected EHLO response: " + response);
     }
-    if (smtpState < EHLO_SENT) {
-        smtpState = EHLO_SENT;
+    if (smtp_state_ < EHLO_SENT) {
+        smtp_state_ = EHLO_SENT;
     }
     return response;
 }
 
 void Smtp::StartTls() {
-    if (smtpState < EHLO_SENT) {
+    if (smtp_state_ < EHLO_SENT) {
         Ehlo();
     }
-    if (smtpState < TLS_CONFIRMED) {
+    if (smtp_state_ < TLS_CONFIRMED) {
+        if (!tls_supported_) {
+            throw std::runtime_error("Server doesnt support TLS.");
+        }
         std::string tlsCommand = "STARTTLS\r\n";
-        std::string response = smtpSocket.sendCommand(tlsCommand);
+        std::string response = smtp_socket_.sendCommand(tlsCommand);
         int startTlsStatus = statusCodeFromResponse(response);
         if (startTlsStatus != VALID_STARTTLS_STATUS) {
             throw std::runtime_error("Unexpected STARTTLS response: " + response);
         }
-        smtpSocket.initializeSSL();
-        smtpState = TLS_CONFIRMED;
+        smtp_socket_.initializeSSL();
+        smtp_state_ = TLS_CONFIRMED;
     }
 }
 
 std::string Smtp::Login(const std::string& username, const std::string& password) {
-    if (smtpState < TLS_CONFIRMED) {
+    if (smtp_state_ < TLS_CONFIRMED) {
         throw std::runtime_error("Must use StartTls() before authenticating.");
     }
-    if (smtpState >= AUTH_CONFIRMED) {
+    if (smtp_state_ >= AUTH_CONFIRMED) {
         throw std::runtime_error("Attempted login while already authenticated.");
     }
-    std::string authCommand = makeAuthCommand(username, password);
-    std::string response = smtpSocket.sendCommand(authCommand);
-    int authStatus = statusCodeFromResponse(response);
-    if (authStatus != VALID_AUTH_STATUS) {
-        throw std::runtime_error("Unexpected Auth response: " + response);
+    if (auth_methods_.empty()) {
+        Ehlo();
     }
-    smtpState = AUTH_CONFIRMED;
+    std::string response;
+    if (auth_methods_.find("PLAIN") != std::string::npos) {
+        std::string authCommand = makePlainAuthCommand(username, password);
+        response = plainAuthLogin(authCommand);
+    } else if (auth_methods_.find("LOGIN") != std::string::npos) {
+        response = loginAuthLogin(username, password);
+    } else {
+        throw std::runtime_error("server doesnt support AUTH PLAIN or AUTH LOGIN authentication methods.");
+    }
+    smtp_state_ = AUTH_CONFIRMED;
     return response;
 }
 
@@ -400,7 +429,7 @@ std::string Smtp::SendMail(Email& email) {
     if (email.body.empty() && email.html.empty()) {
         throw std::runtime_error("Must set either body or html for the email.");
     }
-    sendingEmail = email;
+    sending_email_ = email;
     sendMailFromCommand();
     sendRcptToCommand();
     sendDataCommand();
@@ -410,12 +439,12 @@ std::string Smtp::SendMail(Email& email) {
 
 std::string Smtp::Quit() {
     std::string quitCommand = "QUIT\r\n";
-    std::string response = smtpSocket.sendCommand(quitCommand);
+    std::string response = smtp_socket_.sendCommand(quitCommand);
     int quitStatus = statusCodeFromResponse(response);
     if (quitStatus != VALID_QUIT_RESPONSE) {
         throw std::runtime_error("Unexpected quit response: " + response);
     }
-    smtpState = QUIT_SENT;
+    smtp_state_ = QUIT_SENT;
     return response;
 }
 
@@ -443,29 +472,56 @@ std::string Smtp::makeRcptToCmd(std::string& recipient) {
     return rcptToFormat.str();
 }
 
-std::string Smtp::makeAuthCommand(const std::string& username, const std::string& password) {
+std::string Smtp::makePlainAuthCommand(const std::string& username, const std::string& password) {
     std::stringstream joinedCredentials;
     joinedCredentials << '\0' << username << '\0' << password ;
     std::string encodedCredentials = base64_encode(joinedCredentials.str());
-    std::stringstream authCommandFormat;
-    authCommandFormat << "AUTH PLAIN " << encodedCredentials << "\r\n";
-    return authCommandFormat.str();
+    std::string authCommand = "AUTH PLAIN " + encodedCredentials + "\r\n";
+    return authCommand;
 }
+
+std::string Smtp::plainAuthLogin(std::string& authCommand) {
+    std::string response = smtp_socket_.sendCommand(authCommand);
+    int authStatus = statusCodeFromResponse(response);
+    if (authStatus != VALID_AUTH_STATUS) {
+        throw std::runtime_error("Unexpected Auth response: " + response);
+    }
+    return response;
+}
+
+std::string Smtp::loginAuthLogin(const std::string& username, const std::string& password) {
+    std::string encodedUsername = base64_encode(username);
+    std::string usernameCommand = "AUTH LOGIN " + encodedUsername + "\r\n";
+    std::string usernameResponse = smtp_socket_.sendCommand(usernameCommand);
+    int usernameStatus = statusCodeFromResponse(usernameResponse);
+    if (usernameStatus != VALID_USERNAME_STATUS){
+        throw std::runtime_error("Unexpected server response to username: " + usernameResponse);
+    }
+    std::string encodedPassword = base64_encode(password);
+    std::string passwordCommand = encodedPassword + "\r\n";
+    std::string passwordResponse = smtp_socket_.sendCommand(passwordCommand);
+    int passwordStatus = statusCodeFromResponse(passwordResponse);
+    if (passwordStatus != VALID_AUTH_STATUS) {
+        throw std::runtime_error("Unexpected server response to password: " + passwordResponse);
+    }
+    return passwordResponse;
+}
+
 
 std::string Smtp::makeEmailContentCommand() const {
     std::string emailContent;
     std::string contentType;
-    if (!sendingEmail.html.empty()) {
-        emailContent = sendingEmail.html;
+    if (!sending_email_.html.empty()) {
+        emailContent = sending_email_.html;
         contentType = "text/html;";
     } else {
-        emailContent = sendingEmail.body;
+        emailContent = sending_email_.body;
         contentType = "text/plain;";
     }
     std::stringstream emailFormat;
-    emailFormat << "From: " << sendingEmail.from << "\r\n"
-                << "To: " << sendingEmail.to << "\r\n"
-                << "Subject: " << sendingEmail.subject << "\r\n"
+    emailFormat << "From: " << sending_email_.from << "\r\n"
+                << "To: " << sending_email_.to << "\r\n"
+                << "Subject: " << sending_email_.subject << "\r\n"
                 << "Content-Type: " << contentType << " charset=\"utf-8\"\r\n"
                 << "Content-Transfer-Encoding: 7bit\r\n"
                 << "MIME-Version: 1.0\r\n\r\n"
@@ -475,46 +531,46 @@ std::string Smtp::makeEmailContentCommand() const {
 }
 
 void Smtp::sendMailFromCommand() {
-    std::string mailFromCmd = makeMailFromCmd(sendingEmail.from);
-    std::string response = smtpSocket.sendCommand(mailFromCmd);
+    std::string mailFromCmd = makeMailFromCmd(sending_email_.from);
+    std::string response = smtp_socket_.sendCommand(mailFromCmd);
     int mailFromStatus = statusCodeFromResponse(response);
     if (mailFromStatus != VALID_MAIL_FROM_STATUS) {
         throw std::runtime_error("Unexpected Mail From response: " + response);
     }
-    smtpState = MAIL_FROM_SENT;
+    smtp_state_ = MAIL_FROM_SENT;
 }
 
 void Smtp::sendRcptToCommand() {
-    std::string rcptToCmd = makeRcptToCmd(sendingEmail.to);
-    std::string response = smtpSocket.sendCommand(rcptToCmd);
+    std::string rcptToCmd = makeRcptToCmd(sending_email_.to);
+    std::string response = smtp_socket_.sendCommand(rcptToCmd);
     int rcptToStatus = statusCodeFromResponse(response);
     if (rcptToStatus != VALID_RCPT_TO_STATUS) {
         throw std::runtime_error("Unexpected Rcpt To response: " + response);
     }
-    smtpState = RCPT_TO_SENT;
+    smtp_state_ = RCPT_TO_SENT;
 }
 
 void Smtp::sendDataCommand() {
     std::string dataCommand = "DATA\r\n";
-    std::string response = smtpSocket.sendCommand(dataCommand);
+    std::string response = smtp_socket_.sendCommand(dataCommand);
     int dataStatus = statusCodeFromResponse(response);
     if (dataStatus != VALID_DATA_STATUS) {
         throw std::runtime_error("Unexpected response to DATA command: " + response);
     }
-    smtpState = DATA_COMMAND_SENT;
+    smtp_state_ = DATA_COMMAND_SENT;
 }
 
 std::string Smtp::sendEmailContent() {
-    if (smtpState < DATA_COMMAND_SENT) {
+    if (smtp_state_ < DATA_COMMAND_SENT) {
         throw std::runtime_error("Invalid client state. Must issue proper command sequence before sending an email.");
     }
     std::string emailCommand = makeEmailContentCommand();
-    std::string response = smtpSocket.sendCommand(emailCommand);
+    std::string response = smtp_socket_.sendCommand(emailCommand);
     int emailContentStatus = statusCodeFromResponse(response);
     if (emailContentStatus != VALID_EMAIL_CONTENT_STATUS) {
         throw std::runtime_error("Unexpected Email Content response: " + response);
     }
-    smtpState = EMAIL_CONTENT_SENT;
+    smtp_state_ = EMAIL_CONTENT_SENT;
     return response;
 }
 
@@ -540,7 +596,13 @@ std::vector<std::string> Smtp::advertisedFromEhloResponse(std::string& response)
             while (line.back() == '\r' || line.back() == '\n') {
                 line.pop_back();
             }
-            advertised.push_back(line.substr(4));
+            std::string subStr = line.substr(4);
+            advertised.push_back(subStr);
+            if (subStr.find("AUTH") == 0) {
+                auth_methods_ = subStr;
+            } else if (subStr.find("STARTTLS") == 0) {
+                tls_supported_ = true;
+            }
         }
     }
     return advertised;
@@ -580,12 +642,12 @@ Smtp::SmtpSocket::~SmtpSocket() {
 
 std::string Smtp::SmtpSocket::sendCommand(const std::string& command) {
     if (sock_fd_ == -1) {
-        throw std::runtime_error("Cannot send command. Error with smtpSocket.");
+        throw std::runtime_error("Cannot send command. Error with smtp_socket_.");
     }
     ssize_t bytes_sent;
     if (is_ssl_) {
         if (!ssl_socket_) {
-            throw std::runtime_error("Cannot send command. Error with SSL smtpSocket.");
+            throw std::runtime_error("Cannot send command. Error with SSL smtp_socket_.");
         }
         bytes_sent = SSL_write(ssl_socket_, command.c_str(), int(command.length()));
     } else {
@@ -620,7 +682,7 @@ void Smtp::SmtpSocket::initializeSSL() {
     }
     ssl_socket_ = SSL_new(ssl_context_);
     if (!ssl_socket_) {
-        throw std::runtime_error("Error creating SSL smtpSocket.");
+        throw std::runtime_error("Error creating SSL smtp_socket_.");
     }
     SSL_set_fd(ssl_socket_, sock_fd_);
     int handshake_result = SSL_connect(ssl_socket_);
@@ -633,7 +695,7 @@ void Smtp::SmtpSocket::initializeSSL() {
 void Smtp::SmtpSocket::createSocket() {
     sock_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd_ == -1) {
-        throw std::runtime_error("Error creating smtpSocket: " + std::string(strerror(errno)));
+        throw std::runtime_error("Error creating smtp_socket_: " + std::string(strerror(errno)));
     }
 }
 
